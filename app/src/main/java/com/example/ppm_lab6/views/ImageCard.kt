@@ -1,37 +1,38 @@
 package com.example.ppm_lab6.views
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Brush
-import com.example.ppm_lab6.models.ImageClass
+import com.example.ppm_lab6.models.PexelsPhoto
 import com.example.ppm_lab6.R
 
 @Composable
-fun ImageCard(image: ImageClass) {
+fun ImageCard(
+    imageDetails: () -> Unit,
+    gradient: Boolean,
+    photo: PexelsPhoto,
+) {
 
     Card(
-        // not rounded corners
         modifier = Modifier
             .fillMaxWidth()
             .clickable {
+
+                imageDetails()
+
             },
         shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
@@ -44,10 +45,9 @@ fun ImageCard(image: ImageClass) {
                 .height(200.dp)
         ) {
 
-
             AsyncImage(
-                model = image.imageUrl,
-                contentDescription = "Imagen de ${image.title}",
+                model = photo.src.medium ?: photo.src.large ?: photo.src.original,
+                contentDescription = null,
                 placeholder = painterResource(R.drawable.placeholder),
                 error = painterResource(R.drawable.placeholder),
                 contentScale = ContentScale.Crop,
@@ -56,32 +56,23 @@ fun ImageCard(image: ImageClass) {
 
             )
 
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black
-                            ),
-                            startY = 250f
+            if (gradient) {
+
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black
+                                ),
+                                startY = 250f
+                            )
                         )
-                    )
-            )
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = image.title,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
                 )
-
             }
+
         }
     }
 }
