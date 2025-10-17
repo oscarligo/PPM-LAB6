@@ -1,1 +1,3 @@
-# Laboratorio No. 6 del Curso de Programación de Plataformas Móvules
+# Laboratorio No. 8 del Curso de Programación de Plataformas Móviles
+
+Integración de Room en una Galería de Imagenes
