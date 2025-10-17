@@ -83,6 +83,9 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    // Coroutines (for debounce in flows)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
     implementation("com.squareup.moshi:moshi:1.15.1")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.1")
     implementation("com.squareup.retrofit2:converter-moshi:2.11.0")
@@ -94,4 +97,3 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 }
-

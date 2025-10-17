@@ -11,5 +11,11 @@ interface PexelsApi {
         @Query("page") page: Int = 1,
         @Query("per_page") perPage: Int = 20
     ): Call<PexelsResponse>
-}
 
+    @GET("v1/search")
+    fun search(
+        @Query("query") query: String,
+        @Query("page") page: Int = 1,
+        @Query("per_page") perPage: Int = 20
+    ): Call<PexelsResponse>
+}

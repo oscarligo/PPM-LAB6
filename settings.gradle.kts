@@ -25,4 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PPM-LAB6"
 include(":app")
- 
+

@@ -76,3 +76,48 @@ fun ImageCard(
         }
     }
 }
+
+@Composable
+fun ImageCard(
+    imageDetails: () -> Unit,
+    gradient: Boolean,
+    uri: String,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { imageDetails() },
+        shape = RoundedCornerShape(0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Transparent
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+        ) {
+            AsyncImage(
+                model = uri,
+                contentDescription = null,
+                placeholder = painterResource(R.drawable.placeholder),
+                error = painterResource(R.drawable.placeholder),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize()
+            )
+
+            if (gradient) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startY = 250f
+                            )
+                        )
+                )
+            }
+        }
+    }
+}

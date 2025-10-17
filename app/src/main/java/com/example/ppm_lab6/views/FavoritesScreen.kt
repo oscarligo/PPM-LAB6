@@ -1,43 +1,46 @@
 package com.example.ppm_lab6.views
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.BottomAppBar
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults.topAppBarColors
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.IconButton
+import com.example.ppm_lab6.models.PexelsPhoto
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen(onBack : () -> Unit) {
+fun FavoritesScreen(onBack: () -> Unit, remoteFavorites: List<PexelsPhoto>, localFavorites: List<String>) {
 
     Scaffold(
         topBar = {
             Box {
-                // Gradient behind top bar
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(30.dp)
+                        .height(70.dp)
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)
@@ -45,13 +48,13 @@ fun ProfileScreen(onBack : () -> Unit) {
                         )
                 )
                 TopAppBar(
-                    title = { Text("Profile", textAlign = TextAlign.Center, color = Color.White) },
+                    title = { Text("Favorites", color = Color.White) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
                     },
-                    colors = topAppBarColors(
+                    colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = Color.White
                     ),
@@ -82,20 +85,40 @@ fun ProfileScreen(onBack : () -> Unit) {
                     modifier = Modifier.height(40.dp)
                 ) {}
             }
-        },
-
-        ) { paddingValues ->
+        }
+    ) { padding ->
         Surface(
-            modifier = Modifier.fillMaxSize().padding(paddingValues),
+            modifier = Modifier.fillMaxSize().padding(padding),
             color = MaterialTheme.colorScheme.background
         ) {
-            // Profile content goes here
+            val isEmpty = remoteFavorites.isEmpty() && localFavorites.isEmpty()
+            if (isEmpty) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Nothing here :(", color = Color.White)
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.fillMaxSize().padding(6.dp)
+                ) {
+                    items(remoteFavorites) { photo ->
+                        ImageCard(
+                            imageDetails = { /* could open details if desired */ },
+                            gradient = true,
+                            photo = photo
+                        )
+                    }
+                    items(localFavorites) { uri ->
+                        ImageCard(
+                            imageDetails = { /* could implement local viewer */ },
+                            gradient = true,
+                            uri = uri
+                        )
+                    }
+                }
+            }
         }
     }
-}
-
-@Preview
-@Composable
-fun PreviewSettingsScreen() {
-
 }
