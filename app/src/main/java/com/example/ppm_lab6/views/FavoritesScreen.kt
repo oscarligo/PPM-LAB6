@@ -109,7 +109,7 @@ fun FavoritesScreen(onBack: () -> Unit, openDetail: (PexelsPhoto) -> Unit, openL
             val isEmpty = remotes.isEmpty() && locals.isEmpty()
             if (isEmpty) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No hay favoritos aún", color = Color.White)
+                    Text("No favorites added :(", color = Color.White)
                 }
             } else {
                 LazyVerticalGrid(

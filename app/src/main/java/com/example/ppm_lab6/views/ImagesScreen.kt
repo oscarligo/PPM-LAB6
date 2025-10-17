@@ -82,7 +82,13 @@ import com.example.ppm_lab6.data.RecentSearch
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.PaddingValues
 import android.content.Intent
+import com.example.ppm_lab6.data.CachedPhotoEntity
+import com.example.ppm_lab6.data.SearchIndexEntity
+import com.example.ppm_lab6.data.JsonProvider
+import androidx.room.withTransaction
+import kotlinx.coroutines.delay
 
+private const val debounceDelay: Long = 500L
 
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
@@ -98,7 +104,6 @@ fun ImagesScreen(
     var page by rememberSaveable { mutableStateOf(initialPage) }
     var endReached by rememberSaveable { mutableStateOf(false) }
 
-    var photos by remember { mutableStateOf<List<PexelsPhoto>>(emptyList()) }
     var currentCall by remember { mutableStateOf<Call<PexelsResponse>?>(null) }
     val gridState = rememberLazyGridState() // state for LazyVerticalGrid
     var query by remember { mutableStateOf("") } // search bar state
@@ -107,8 +112,17 @@ fun ImagesScreen(
     val db = remember { DatabaseProvider.get(context) }
     val dao = remember { db.recentSearchDao() }
     val favoriteLocalDao = remember { db.favoriteLocalDao() }
+    val cachedDao = remember { db.cachedPhotoDao() }
+    val indexDao = remember { db.searchIndexDao() }
     val scope = rememberCoroutineScope()
     val recent by dao.observeRecent(limit = 10).collectAsState(initial = emptyList())
+
+    val photoAdapter = remember { JsonProvider.moshi.adapter(PexelsPhoto::class.java) }
+    val queryKey = remember(query) { if (query.isBlank()) "" else query.trim() }
+    val cachedJson by indexDao.observeJsonByQuery(queryKey).collectAsState(initial = emptyList())
+    val displayPhotos = remember(cachedJson) {
+        cachedJson.mapNotNull { runCatching { photoAdapter.fromJson(it) }.getOrNull() }
+    }
 
     // Document picker launcher with persistable permission
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -126,22 +140,18 @@ fun ImagesScreen(
         onDispose { currentCall?.cancel() }
     }
 
-    fun fetch(newPage: Int = page, reset: Boolean = false) {
+    fun fetch(newPage: Int = page, reset: Boolean = false, qKey: String = queryKey) {
         if (loading) return
-        if (reset) {
-            endReached = false
-            photos = emptyList()
-        } else if (endReached) {
-            return
-        }
+        if (endReached && !reset) return
+
         currentCall?.cancel()
         loading = true
         error = null
 
-        val call = if (query.isBlank()) {
+        val call = if (qKey.isBlank()) {
             PexelsService.api.getCurated(page = newPage, perPage = perPage)
         } else {
-            PexelsService.api.search(query = query.trim(), page = newPage, perPage = perPage)
+            PexelsService.api.search(query = qKey, page = newPage, perPage = perPage)
         }
         currentCall = call
 
@@ -152,14 +162,30 @@ fun ImagesScreen(
                     val body = response.body()
                     val list = body?.photos.orEmpty()
                     endReached = body?.nextPage == null || list.isEmpty()
-
-                    photos = if (reset || newPage <= initialPage) list else photos + list
                     page = newPage
 
-                    // Save successful query as recent (non-blank)
-                    val q = query.trim()
-                    if (q.isNotEmpty()) {
-                        scope.launch {
+                    scope.launch {
+                        db.withTransaction {
+                            if (reset) {
+                                indexDao.clearQuery(qKey)
+                            } else {
+                                indexDao.clearPage(qKey, newPage)
+                            }
+                            val now = System.currentTimeMillis()
+                            val cached = list.map { p ->
+                                val json = photoAdapter.toJson(p)
+                                CachedPhotoEntity(id = p.id, json = json, updatedAt = now)
+                            }
+                            cachedDao.upsertAll(cached)
+                            val index = list.mapIndexed { i, p ->
+                                SearchIndexEntity(query = qKey, page = newPage, position = i, photoId = p.id)
+                            }
+                            indexDao.upsertAll(index)
+                        }
+
+                        // Save successful query as recent (non-blank)
+                        val q = qKey
+                        if (q.isNotEmpty()) {
                             dao.upsert(RecentSearch(query = q, updatedAt = System.currentTimeMillis()))
                             dao.trim(limit = 10)
                         }
@@ -176,29 +202,20 @@ fun ImagesScreen(
         })
     }
 
-    // Initial load
-    LaunchedEffect(Unit) {
-        if (photos.isEmpty()) fetch(initialPage, reset = true)
+    // Initial load and on query change with debounce
+    LaunchedEffect(queryKey) {
+        endReached = false
+        delay(debounceDelay)
+        fetch(initialPage, reset = true, qKey = queryKey)
     }
 
     // Trigger next page when scrolled near the end
-    LaunchedEffect(gridState, photos, endReached) {
+    LaunchedEffect(gridState, displayPhotos, endReached, queryKey) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
-            .map { lastIndex -> lastIndex >= photos.size - 4 }
+            .map { lastIndex -> lastIndex >= displayPhotos.size - 4 }
             .distinctUntilChanged()
-            .filter { it && !loading && error == null && !endReached && photos.isNotEmpty() }
-            .collect { fetch(page + 1) }
-    }
-
-    // Debounced query changes -> reset and fetch
-    LaunchedEffect(Unit) {
-        snapshotFlow { query }
-            .debounce(500)
-            .distinctUntilChanged()
-            .drop(1) // skip initial empty query; initial load already handled
-            .collect {
-                fetch(initialPage, reset = true)
-            }
+            .filter { it && !loading && error == null && !endReached && displayPhotos.isNotEmpty() }
+            .collect { fetch(page + 1, reset = false, qKey = queryKey) }
     }
 
     Scaffold(
@@ -259,7 +276,7 @@ fun ImagesScreen(
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
-                    photos.isNotEmpty() -> {
+                    displayPhotos.isNotEmpty() -> {
                         LazyVerticalGrid(
                             state = gridState,
                             columns = GridCells.Adaptive(minSize = 150.dp),
@@ -274,7 +291,7 @@ fun ImagesScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                         ) {
-                            items(photos, key = { it.id }) { photo ->
+                            items(displayPhotos, key = { it.id }) { photo ->
                                 ImageCard(
                                     imageDetails = { openDetail(photo) },
                                     gradient = true,
@@ -320,7 +337,7 @@ fun ImagesScreen(
                                 .align(Alignment.Center)
                                 .padding(16.dp)
                         ) {
-                            val msg = if (query.isNotBlank()) "No results for \"$query\"" else "No photos available"
+                            val msg = if (queryKey.isNotBlank()) "No results for \"$queryKey\"" else "No photos available"
                             Text(msg)
                         }
                     }
@@ -353,7 +370,7 @@ fun ImagesScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 12.dp)
-                        .align(Alignment.BottomCenter)
+                    .align(Alignment.BottomCenter)
                         .zIndex(1f)
                 ) {
                     BottomActions(
