@@ -18,6 +18,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -28,11 +31,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import com.example.ppm_lab6.data.DatabaseProvider
+import com.example.ppm_lab6.data.FavoriteLocalEntity
+import com.example.ppm_lab6.data.FavoriteRemoteEntity
+import com.example.ppm_lab6.data.JsonProvider
 import com.example.ppm_lab6.models.PexelsPhoto
+import com.squareup.moshi.adapter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FavoritesScreen(onBack: () -> Unit, remoteFavorites: List<PexelsPhoto>, localFavorites: List<String>) {
+fun FavoritesScreen(onBack: () -> Unit, openDetail: (PexelsPhoto) -> Unit, openLocalDetail: (String) -> Unit) {
+    val context = LocalContext.current
+    val db = remember { DatabaseProvider.get(context) }
+    val remotes by db.favoriteRemoteDao().observeAll().collectAsState(initial = emptyList())
+    val locals by db.favoriteLocalDao().observeAll().collectAsState(initial = emptyList())
 
     Scaffold(
         topBar = {
@@ -91,10 +104,12 @@ fun FavoritesScreen(onBack: () -> Unit, remoteFavorites: List<PexelsPhoto>, loca
             modifier = Modifier.fillMaxSize().padding(padding),
             color = MaterialTheme.colorScheme.background
         ) {
-            val isEmpty = remoteFavorites.isEmpty() && localFavorites.isEmpty()
+            val moshi = JsonProvider.moshi
+            val adapter = remember { moshi.adapter(PexelsPhoto::class.java) }
+            val isEmpty = remotes.isEmpty() && locals.isEmpty()
             if (isEmpty) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Nothing here :(", color = Color.White)
+                    Text("No hay favoritos aún", color = Color.White)
                 }
             } else {
                 LazyVerticalGrid(
@@ -103,18 +118,21 @@ fun FavoritesScreen(onBack: () -> Unit, remoteFavorites: List<PexelsPhoto>, loca
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.fillMaxSize().padding(6.dp)
                 ) {
-                    items(remoteFavorites) { photo ->
-                        ImageCard(
-                            imageDetails = { /* could open details if desired */ },
-                            gradient = true,
-                            photo = photo
-                        )
+                    items(remotes, key = { it.id }) { entity: FavoriteRemoteEntity ->
+                        val photo = runCatching { adapter.fromJson(entity.json) }.getOrNull()
+                        if (photo != null) {
+                            ImageCard(
+                                imageDetails = { openDetail(photo) },
+                                gradient = true,
+                                photo = photo
+                            )
+                        }
                     }
-                    items(localFavorites) { uri ->
+                    items(locals, key = { it.uri }) { entity: FavoriteLocalEntity ->
                         ImageCard(
-                            imageDetails = { /* could implement local viewer */ },
+                            imageDetails = { openLocalDetail(entity.uri) },
                             gradient = true,
-                            uri = uri
+                            uri = entity.uri
                         )
                     }
                 }

@@ -6,10 +6,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -39,10 +41,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.ppm_lab6.models.PexelsPhoto
 import com.example.ppm_lab6.models.PexelsResponse
 import com.example.ppm_lab6.models.PexelsService
+import com.example.ppm_lab6.data.FavoriteLocalEntity
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -66,10 +70,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Add
+import com.example.ppm_lab6.data.DatabaseProvider
+import com.example.ppm_lab6.data.RecentSearch
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.PaddingValues
+import android.content.Intent
 
 
 @OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
@@ -79,8 +91,7 @@ fun ImagesScreen(
     openProfile: () -> Unit = {},
     openFavorites: () -> Unit = {},
     initialPage: Int = 1,
-    perPage: Int = 14,
-    onAddLocalFavorite: (String) -> Unit = {}
+    perPage: Int = 14
 ) {
     var loading by rememberSaveable { mutableStateOf(false) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
@@ -92,9 +103,22 @@ fun ImagesScreen(
     val gridState = rememberLazyGridState() // state for LazyVerticalGrid
     var query by remember { mutableStateOf("") } // search bar state
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val context = LocalContext.current
+    val db = remember { DatabaseProvider.get(context) }
+    val dao = remember { db.recentSearchDao() }
+    val favoriteLocalDao = remember { db.favoriteLocalDao() }
+    val scope = rememberCoroutineScope()
+    val recent by dao.observeRecent(limit = 10).collectAsState(initial = emptyList())
+
+    // Document picker launcher with persistable permission
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            onAddLocalFavorite(uri.toString())
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {
+                // ignore if not persistable; still try to save
+            }
+            scope.launch { favoriteLocalDao.upsert(FavoriteLocalEntity(uri = uri.toString(), updatedAt = System.currentTimeMillis())) }
         }
     }
 
@@ -131,6 +155,15 @@ fun ImagesScreen(
 
                     photos = if (reset || newPage <= initialPage) list else photos + list
                     page = newPage
+
+                    // Save successful query as recent (non-blank)
+                    val q = query.trim()
+                    if (q.isNotEmpty()) {
+                        scope.launch {
+                            dao.upsert(RecentSearch(query = q, updatedAt = System.currentTimeMillis()))
+                            dao.trim(limit = 10)
+                        }
+                    }
                 } else {
                     error = "HTTP ${response.code()}"
                 }
@@ -232,8 +265,8 @@ fun ImagesScreen(
                             columns = GridCells.Adaptive(minSize = 150.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                top = 64.dp,
+                            contentPadding = PaddingValues(
+                                top = 6.dp,
                                 start = 6.dp,
                                 end = 6.dp,
                                 bottom = 96.dp
@@ -263,7 +296,6 @@ fun ImagesScreen(
                         }
                     }
                     loading -> {
-                        // Small non-blocking loading indicator centered
                         Box(
                             modifier = Modifier
                                 .align(Alignment.Center)
@@ -294,7 +326,6 @@ fun ImagesScreen(
                     }
                 }
 
-                // Always-on transparent search bar overlay (top)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -302,11 +333,20 @@ fun ImagesScreen(
                         .align(Alignment.TopCenter)
                         .zIndex(1f)
                 ) {
-                    SearchBar(
-                        query = query,
-                        onQueryChange = { query = it },
-                        onClear = { query = "" }
-                    )
+                    Column {
+                        SearchBar(
+                            query = query,
+                            onQueryChange = { query = it },
+                            onClear = { query = "" }
+                        )
+                        if (recent.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            RecentSearchRow(
+                                items = recent,
+                                onSelect = { selected -> query = selected }
+                            )
+                        }
+                    }
                 }
 
                 Box(
@@ -319,7 +359,7 @@ fun ImagesScreen(
                     BottomActions(
                         onProfile = { openProfile() },
                         onFavorites = { openFavorites() },
-                        onPickFromGallery = { galleryLauncher.launch("image/*") }
+                        onPickFromGallery = { galleryLauncher.launch(arrayOf("image/*")) }
                     )
                 }
 
@@ -363,28 +403,60 @@ fun SearchBar(
                         )
                     }
                 }
-            } else null,
+
+            }
+            else null,
             singleLine = true,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp),
-            textStyle = LocalTextStyle.current.copy(color = Color.White),
+                .fillMaxWidth()
+                .height(65.dp)
+                .background(Color.Transparent),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,
                 unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
-                cursorColor = Color.White,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                focusedLeadingIconColor = Color.White.copy(alpha = 0.7f),
-                unfocusedLeadingIconColor = Color.White.copy(alpha = 0.7f),
-                focusedPlaceholderColor = Color.White.copy(alpha = 0.6f),
-                unfocusedPlaceholderColor = Color.White.copy(alpha = 0.6f)
-            )
+                focusedIndicatorColor = Color.Transparent,
+                cursorColor = Color.White
+            ),
+            textStyle = LocalTextStyle.current.copy(color = Color.White)
         )
+    }
+}
+
+@Composable
+fun RecentSearchRow(
+    items: List<RecentSearch>,
+    onSelect: (String) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(65.dp)
+            .clip(RoundedCornerShape(12.dp))
+    ) {
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(items) { item ->
+                Button(
+                    onClick = { onSelect(item.query) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Black.copy(alpha = 0.7f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = item.query,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -394,53 +466,40 @@ fun BottomActions(
     onFavorites: () -> Unit,
     onPickFromGallery: () -> Unit
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(65.dp)
+            .height(50.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color.Black.copy(alpha = 0.7f))
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
+        Button(
+            onClick = onProfile,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)
         ) {
-            Button(
-                onClick = onProfile,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White
-                )
-            ) {
-                Icon(Icons.Default.Person, contentDescription = "Profile")
-                Spacer(Modifier.width(6.dp))
-                Text("Profile")
-            }
-            Button(
-                onClick = onFavorites,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White
-                )
-            ) {
-                Icon(Icons.Default.Favorite, contentDescription = "Favorites")
-                Spacer(Modifier.width(6.dp))
-                Text("Favorites")
-            }
-            Button(
-                onClick = onPickFromGallery,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent,
-                    contentColor = Color.White
-                )
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "From Gallery")
-                Spacer(Modifier.width(6.dp))
-                Text("Add")
-            }
+            Icon(Icons.Default.Person, contentDescription = null)
+            Text( "Profile", modifier = Modifier.padding(start = 4.dp) )
+
+        }
+
+        Button(
+            onClick = onFavorites,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)
+        ) {
+            Icon(Icons.Default.Favorite, contentDescription = null)
+            Text( "Favorites", modifier = Modifier.padding(start = 4.dp) )
+
+        }
+
+        Button(
+            onClick = onPickFromGallery,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = Color.White)
+        ) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Text( "Add", modifier = Modifier.padding(start = 4.dp) )
         }
     }
 }

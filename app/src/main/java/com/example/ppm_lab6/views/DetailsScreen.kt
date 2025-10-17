@@ -22,10 +22,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults.topAppBarColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import com.example.ppm_lab6.models.PexelsPhoto
 import androidx.compose.material3.Button
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,16 +32,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
+import com.example.ppm_lab6.data.DatabaseProvider
+import com.example.ppm_lab6.data.FavoriteRemoteDao
+import com.example.ppm_lab6.data.FavoriteRemoteEntity
+import com.example.ppm_lab6.data.JsonProvider
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailsScreen(
     onBack: () -> Unit,
-    photo: PexelsPhoto,
-    isFavorite: (PexelsPhoto) -> Boolean,
-    toggleFavorite: (PexelsPhoto) -> Unit,
+    photo: com.example.ppm_lab6.models.PexelsPhoto,
 ) {
-    var isFav by remember { mutableStateOf(isFavorite(photo)) }
+    val context = LocalContext.current
+    val db = remember { DatabaseProvider.get(context) }
+    val dao: FavoriteRemoteDao = remember { db.favoriteRemoteDao() }
+    val scope = rememberCoroutineScope()
+
+    val isFavCount by dao.isFavoriteFlow(photo.id).collectAsState(initial = 0)
+    val isFav = isFavCount > 0
 
     Scaffold(
         topBar = {
@@ -128,15 +137,23 @@ fun DetailsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     ImageCard(imageDetails = { onBack() }, gradient = false, photo = photo)
-                    Text(text = photo.photographer, style = MaterialTheme.typography.bodyMedium)
+                    // author and title
+                    Text(text = photo.alt ?: "No Title", style = MaterialTheme.typography.titleMedium)
+                    Text(text = "Author: " + photo.photographer, style = MaterialTheme.typography.bodyMedium)
 
                     if (isFav) {
                         Text(text = "Saved as Favorite", color = MaterialTheme.colorScheme.primary)
                     }
 
                     Button(onClick = {
-                        toggleFavorite(photo)
-                        isFav = isFavorite(photo)
+                        scope.launch {
+                            if (isFav) {
+                                dao.delete(photo.id)
+                            } else {
+                                val json = JsonProvider.moshi.adapter(com.example.ppm_lab6.models.PexelsPhoto::class.java).toJson(photo)
+                                dao.upsert(FavoriteRemoteEntity(id = photo.id, json = json, updatedAt = System.currentTimeMillis()))
+                            }
+                        }
                     }) {
                         Text(text = if (isFav) "Remove from Favorites" else "Save as Favorite")
                     }
